@@ -56,9 +56,23 @@ def scrape_ampol_tgp():
         if not table:
             raise ValueError("Could not extract table from PDF.")
 
-        # Identify header rows to handle potential layout changes
-        fuel_header_row_index = next((i for i, row in enumerate(table) if row and 'UNLEADED 91' in row), -1)
+        # Identify header rows with a more robust method
+        fuel_header_row_index = -1
+        for i, row in enumerate(table):
+            if not row:
+                continue
+            # Convert all cells to string and filter out empty/None cells
+            row_str_cells = [str(cell).strip() for cell in row if cell]
+            # Check if this row looks like the fuel header
+            if 'UNLEADED 91' in row_str_cells and 'DIESEL' in row_str_cells:
+                fuel_header_row_index = i
+                break
+
         if fuel_header_row_index == -1:
+            print("\nError: Failed to find the header row. The extracted table structure may have changed.")
+            print("Dumping extracted table for debugging:")
+            for i, row in enumerate(table):
+                print(f"Row {i}: {row}")
             raise ValueError("Could not find the fuel header row in the table.")
 
         fuel_header = table[fuel_header_row_index]
