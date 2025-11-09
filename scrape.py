@@ -51,8 +51,11 @@ def scrape_ampol_tgp():
         previous_date = datetime.strptime(previous_date_str, "%A, %d %B %Y").date()
         print(f"Current Date: {current_date}, Previous Date: {previous_date}")
 
-        # 3b. Extract the main table
-        table = page.extract_table()
+        # 3b. Extract the main table using a text-based strategy
+        table = page.extract_table(table_settings={
+            "vertical_strategy": "text",
+            "horizontal_strategy": "text",
+        })
         if not table:
             raise ValueError("Could not extract table from PDF.")
 
@@ -61,9 +64,7 @@ def scrape_ampol_tgp():
         for i, row in enumerate(table):
             if not row:
                 continue
-            # Convert all cells to string and filter out empty/None cells
             row_str_cells = [str(cell).strip() for cell in row if cell]
-            # Check if this row looks like the fuel header
             if 'UNLEADED 91' in row_str_cells and 'DIESEL' in row_str_cells:
                 fuel_header_row_index = i
                 break
