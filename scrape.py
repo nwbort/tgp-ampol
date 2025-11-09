@@ -38,8 +38,8 @@ def scrape_ampol_tgp():
         print(f"Error downloading the PDF file: {e}")
         return
 
-    # 3. Extract data using pdfplumber
-    print("Extracting data from PDF...")
+    # 3. Extract data by parsing raw text (more robust for this PDF)
+    print("Extracting data from PDF via text parsing...")
     with pdfplumber.open(pdf_file) as pdf:
         page = pdf.pages[0]
         text = page.extract_text()
@@ -51,56 +51,44 @@ def scrape_ampol_tgp():
         previous_date = datetime.strptime(previous_date_str, "%A, %d %B %Y").date()
         print(f"Current Date: {current_date}, Previous Date: {previous_date}")
 
-        # 3b. Extract the main table using a text-based strategy
-        table = page.extract_table(table_settings={
-            "vertical_strategy": "text",
-            "horizontal_strategy": "text",
-        })
-        if not table:
-            raise ValueError("Could not extract table from PDF.")
+        # 3b. Manually parse the table from the text lines
+        lines = text.split('\n')
+        data_rows = []
+        state_regex = re.compile(r'^(NSW|QLD|VIC|TAS|SA|NT|WA)\s')
 
-        # Identify header rows with a more robust method
-        fuel_header_row_index = -1
-        for i, row in enumerate(table):
-            if not row:
+        for line in lines:
+            line = line.strip()
+            if not state_regex.match(line):
                 continue
-            row_str_cells = [str(cell).strip() for cell in row if cell]
-            if 'UNLEADED 91' in row_str_cells and 'DIESEL' in row_str_cells:
-                fuel_header_row_index = i
-                break
 
-        if fuel_header_row_index == -1:
-            print("\nError: Failed to find the header row. The extracted table structure may have changed.")
-            print("Dumping extracted table for debugging:")
-            for i, row in enumerate(table):
-                print(f"Row {i}: {row}")
-            raise ValueError("Could not find the fuel header row in the table.")
+            # Split by whitespace, which may split multi-word locations
+            tokens = re.split(r'\s+', line)
+            
+            # The last 10 items are always the price data
+            if len(tokens) >= 12: # State + at least one word for location + 10 prices
+                prices = tokens[-10:]
+                location = ' '.join(tokens[1:-10])
+                state = tokens[0]
+                data_rows.append([state, location] + prices)
+            else:
+                print(f"Warning: Skipping row that doesn't seem to have enough columns: '{line}'")
 
-        fuel_header = table[fuel_header_row_index]
-        day_header = table[fuel_header_row_index + 1]
-        data_rows = table[fuel_header_row_index + 2:]
+        if not data_rows:
+            raise ValueError("Failed to parse any data rows from the PDF text.")
 
-        # 3c. Construct clean column headers
-        fuel_names = []
-        last_fuel = ''
-        for fuel in fuel_header:
-            if fuel and fuel.strip():
-                last_fuel = re.sub(r'\*+', '', fuel).strip()
-            fuel_names.append(last_fuel)
-        
-        fuel_map = {"UNLEADED 91": "ULP", "PULP 95": "PULP95", "SPULP 98": "PULP98"}
-        
-        columns = [day_header[0], day_header[1]]  # State, Location
-        for i in range(2, len(day_header)):
-            fuel_name = fuel_map.get(fuel_names[i], fuel_names[i])
-            columns.append(f"{fuel_name}_{day_header[i]}")
-
-        df = pd.DataFrame(data_rows, columns=columns)
-        df = df[df['State'].notna() & (df['State'] != '')]
+        # 3c. Create DataFrame with hardcoded headers
+        headers = [
+            'state', 'terminal',
+            'E10_Previous', 'E10_Current',
+            'ULP_Previous', 'ULP_Current',
+            'PULP95_Previous', 'PULP95_Current',
+            'PULP98_Previous', 'PULP98_Current',
+            'DIESEL_Previous', 'DIESEL_Current'
+        ]
+        df = pd.DataFrame(data_rows, columns=headers)
 
     # 4. Process the DataFrame into a long format
     print("Processing data...")
-    df.rename(columns={'State': 'state', 'Location': 'terminal'}, inplace=True)
     df['terminal'] = df['terminal'].str.replace(r'\*+$', '', regex=True)
     
     long_df = pd.melt(df, id_vars=['state', 'terminal'], var_name='fuel_day', value_name='tgp')
