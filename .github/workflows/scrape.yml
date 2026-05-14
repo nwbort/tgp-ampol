@@ -31,7 +31,7 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add ampol_tgp_data.csv
+        git add ampol_tgp_data.csv tgp_data.csv tgp_data.json
         # Commit only if there are changes staged
         if ! git diff --staged --quiet; then
           git commit -m "Update Ampol TGP data"

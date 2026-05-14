@@ -3,9 +3,48 @@ from bs4 import BeautifulSoup
 import pdfplumber
 import pandas as pd
 import re
-from datetime import datetime
+import json
+from datetime import datetime, date
 import io
 import os
+
+FUEL_TYPE_MAP = {
+    'ULP': 'ulp91',
+    'E10': 'e10',
+    'PULP95': 'p95',
+    'PULP98': 'p98',
+    'DIESEL': 'diesel',
+}
+
+
+def write_normalised_outputs(source_csv, csv_out='tgp_data.csv', json_out='tgp_data.json', provider='ampol'):
+    """Read the raw scrape CSV and regenerate the standardised CSV and JSON files."""
+    df = pd.read_csv(source_csv)
+
+    out = pd.DataFrame({
+        'date': df['effective_date'],
+        'state': df['state'],
+        'location': df['terminal'],
+        'fuel_type': df['fuel'].map(FUEL_TYPE_MAP),
+        'price_cpl': pd.to_numeric(df['tgp'], errors='coerce').round(1),
+    })
+
+    out = out.dropna(subset=['fuel_type', 'price_cpl'])
+    out = out.drop_duplicates(subset=['date', 'state', 'location', 'fuel_type'], keep='last')
+    out = out.sort_values(by=['date', 'state', 'location', 'fuel_type']).reset_index(drop=True)
+
+    out.to_csv(csv_out, index=False)
+    print(f"Wrote normalised CSV: {csv_out} ({len(out)} rows)")
+
+    payload = {
+        'provider': provider,
+        'updated': date.today().isoformat(),
+        'fields': ['date', 'state', 'location', 'fuel_type', 'price_cpl'],
+        'records': out.values.tolist(),
+    }
+    with open(json_out, 'w') as f:
+        json.dump(payload, f, separators=(',', ':'))
+    print(f"Wrote JSON: {json_out} ({len(out)} records)")
 
 def scrape_ampol_tgp():
     """
@@ -119,6 +158,8 @@ def scrape_ampol_tgp():
     
     combined_df.to_csv(output_filename, index=False)
     print(f"Successfully saved data to {output_filename}")
+
+    write_normalised_outputs(output_filename)
 
 if __name__ == "__main__":
     scrape_ampol_tgp()
